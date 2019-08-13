@@ -8,14 +8,20 @@ import hashlib
 import xml.etree.ElementTree as ET
 from .sfo import SfoFile
 
+from urllib3.poolmanager import PoolManager
+import ssl
+
+
 BUFFER_SIZE = 1024 * 1024 * 3
 
-DEFAULT_RPCS3_SUBDIRS = ["shaderlog",
-                         "GuiConfigs",
+DEFAULT_RPCS3_SUBDIRS = ["GuiConfigs",
                          "dev_usb000",
                          "dev_hdd1",
                          "dev_hdd0"]
 
+class SSL3HTTPAdapter(requests.adapters.HTTPAdapter):
+    def init_poolmanager(self, connections, maxsize, block=False):
+        self.poolmanager = PoolManager(num_pools=connections, maxsize=maxsize, block=block, ssl_version=ssl.PROTOCOL_SSLv23)
 
 def is_rpcs3_dir(base_dir):
     return all(os.path.isdir(os.path.join(base_dir, subdir)) for subdir in DEFAULT_RPCS3_SUBDIRS)
@@ -103,8 +109,10 @@ def download_updates(tid, base_dir, cert_path):
     if not os.path.isdir(content_folder):
         os.mkdir(content_folder)
 
-    r = requests.get(url="https://a0.ww.np.dl.playstation.net/tpl/np/{tid}/{tid}-ver.xml".format(tid=tid),
-                     verify=cert_path)
+    s = requests.Session()
+    s.mount('https://a0.ww.np.dl.playstation.net/', SSL3HTTPAdapter())
+    r = s.get(url="https://a0.ww.np.dl.playstation.net/tpl/np/{tid}/{tid}-ver.xml".format(tid=tid),
+                     verify=False)
     try:
         xml_tree = ET.fromstring(r.text)
     except ET.ParseError:
@@ -121,7 +129,7 @@ def download_updates(tid, base_dir, cert_path):
                                node.attrib['sha1sum'],
                                check_hash=True):
 
-            r = requests.get(node.attrib['url'],
+            r = s.get(node.attrib['url'],
                              verify=cert_path,
                              stream=True)
 
@@ -199,3 +207,6 @@ def update_games():
 
     for title_dir in game_ids:
         download_updates(title_dir, base_dir, cert_path)
+
+if __name__ == '__main__':
+    update_games()
